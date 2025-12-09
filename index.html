@@ -172,10 +172,78 @@
 </div>
 
 <script>
-let tasks = JSON.parse(localStorage.getItem("tasks")) || [];
+// Constantes para estados de tareas
+const TASK_STATUS = {
+  PENDING: "",
+  STARTED: "started",
+  DONE: "done",
+  CANCELLED: "cancelled"
+};
+
+// Regex para limpiar texto de tareas (reutilizable)
+const TASK_METADATA_REGEX = /@done.*|@cancelled.*|@started.*|@Lasted.*/g;
+
+// Cargar tareas con manejo de errores
+let tasks = [];
+try {
+  const storedTasks = localStorage.getItem("tasks");
+  if (storedTasks !== null) {
+    const parsedTasks = JSON.parse(storedTasks);
+    if (Array.isArray(parsedTasks)) {
+      tasks = parsedTasks;
+    }
+  }
+} catch (error) {
+  console.error("Error al cargar tareas desde localStorage:", error);
+  tasks = [];
+}
 
 function saveTasks() {
-  localStorage.setItem("tasks", JSON.stringify(tasks));
+  try {
+    localStorage.setItem("tasks", JSON.stringify(tasks));
+  } catch (error) {
+    console.error("Error al guardar tareas en localStorage:", error);
+    alert("Error al guardar las tareas. Por favor, verifica que localStorage esté disponible.");
+  }
+}
+
+/**
+ * Limpia el texto de una tarea eliminando metadatos de estado
+ * @param {Object} task - Objeto de tarea
+ * @returns {string} Texto limpio de la tarea
+ */
+function cleanTaskText(task) {
+  if (!task || !task.text) {
+    return "";
+  }
+  return task.text.replace(TASK_METADATA_REGEX, "").trim();
+}
+
+/**
+ * Actualiza el estado de una tarea y añade los metadatos correspondientes
+ * @param {Object} task - Objeto de tarea a actualizar
+ * @param {string} newStatus - Nuevo estado (TASK_STATUS.STARTED, TASK_STATUS.DONE, etc.)
+ */
+function updateTaskStatus(task, newStatus) {
+  if (!task) {
+    return;
+  }
+
+  const cleanText = cleanTaskText(task);
+  task.status = newStatus;
+
+  if (newStatus === TASK_STATUS.STARTED) {
+    task.startedAt = new Date();
+    task.text = cleanText + ` @started(${formatDate()})`;
+  } else if (newStatus === TASK_STATUS.DONE) {
+    const lasted = task.startedAt ? ` @Lasted(${getElapsed(task.startedAt)})` : "";
+    task.text = cleanText + ` @done(${formatDate()})${lasted}`;
+  } else if (newStatus === TASK_STATUS.CANCELLED) {
+    task.text = cleanText + ` @cancelled(${formatDate()})`;
+  } else if (newStatus === TASK_STATUS.PENDING) {
+    task.startedAt = null;
+    task.text = cleanText;
+  }
 }
 
 function formatDate() {
@@ -196,25 +264,37 @@ function getElapsed(start) {
 }
 
 function getStatusIcon(status) {
-  if (status === "started") return "▶️";
-  if (status === "done") return "✅";
-  if (status === "cancelled") return "❌";
+  if (status === TASK_STATUS.STARTED) return "▶️";
+  if (status === TASK_STATUS.DONE) return "✅";
+  if (status === TASK_STATUS.CANCELLED) return "❌";
   return "";
 }
 
 function sortTasks() {
-  const order = { "": 0, "started": 1, "done": 2, "cancelled": 3 };
-  tasks.sort((a, b) => order[a.status] - order[b.status]);
+  const order = { 
+    [TASK_STATUS.PENDING]: 0, 
+    [TASK_STATUS.STARTED]: 1, 
+    [TASK_STATUS.DONE]: 2, 
+    [TASK_STATUS.CANCELLED]: 3 
+  };
+  tasks.sort((a, b) => {
+    const statusA = a.status || TASK_STATUS.PENDING;
+    const statusB = b.status || TASK_STATUS.PENDING;
+    return (order[statusA] || 0) - (order[statusB] || 0);
+  });
   saveTasks();
   renderTasks();
 }
 
 function editTask(index) {
-  let task = tasks[index];
-  let taskText = task.text.replace(/@done.*|@cancelled.*|@started.*|@Lasted.*/g, "").trim();
-  let newText = prompt("Editar tarea:", taskText);
+  if (index < 0 || index >= tasks.length) {
+    return;
+  }
+  const task = tasks[index];
+  const taskText = cleanTaskText(task);
+  const newText = prompt("Editar tarea:", taskText);
   if (newText !== null && newText.trim() !== "") {
-    let statusMatch = task.text.match(/@(done|cancelled|started)\(([^)]+)\)(.*)/);
+    const statusMatch = task.text.match(/@(done|cancelled|started)\(([^)]+)\)(.*)/);
     if (statusMatch) {
       task.text = newText.trim() + " @" + statusMatch[1] + "(" + statusMatch[2] + ")" + statusMatch[3];
     } else {
@@ -226,8 +306,11 @@ function editTask(index) {
 }
 
 function deleteTask(index) {
-  let task = tasks[index];
-  let taskText = task.text.replace(/@done.*|@cancelled.*|@started.*|@Lasted.*/g, "").trim();
+  if (index < 0 || index >= tasks.length) {
+    return;
+  }
+  const task = tasks[index];
+  const taskText = cleanTaskText(task);
   if (confirm(`¿Estás seguro de eliminar la tarea: "${taskText}"?`)) {
     tasks.splice(index, 1);
     saveTasks();
@@ -238,49 +321,55 @@ function deleteTask(index) {
 function renderTasks() {
   $("#task-list").empty();
   tasks.forEach((task, i) => {
-    let statusIcon = getStatusIcon(task.status);
-    let taskText = task.text.replace(/@done.*|@cancelled.*|@started.*|@Lasted.*/g, "").trim();
-    let timestamp = task.text.match(/@(done|cancelled|started)\(([^)]+)\)/);
-    let timestampText = timestamp ? timestamp[2] : "";
-    let elapsed = task.status === "done" && task.startedAt ? ` · Duración: ${getElapsed(task.startedAt)}` : "";
+    const statusIcon = getStatusIcon(task.status);
+    const taskText = cleanTaskText(task);
+    const timestamp = task.text.match(/@(done|cancelled|started)\(([^)]+)\)/);
+    const timestampText = timestamp ? timestamp[2] : "";
+    const elapsed = task.status === TASK_STATUS.DONE && task.startedAt ? ` · Duración: ${getElapsed(task.startedAt)}` : "";
 
-    let taskDiv = $("<div>").addClass("task").attr("data-index", i);
-    if (task.status === "done") taskDiv.addClass("done");
-    if (task.status === "cancelled") taskDiv.addClass("cancelled");
-    if (task.status === "started") taskDiv.addClass("started");
+    const taskDiv = $("<div>").addClass("task").attr("data-index", i);
+    if (task.status === TASK_STATUS.DONE) taskDiv.addClass("done");
+    if (task.status === TASK_STATUS.CANCELLED) taskDiv.addClass("cancelled");
+    if (task.status === TASK_STATUS.STARTED) taskDiv.addClass("started");
 
-    let contentDiv = $("<div>").addClass("task-content");
-    let textDiv = $("<div>").addClass("task-text");
+    const contentDiv = $("<div>").addClass("task-content");
+    const textDiv = $("<div>").addClass("task-text");
+    
+    // Corrección XSS: el icono es seguro (viene de getStatusIcon), pero el texto del usuario debe escaparse
     if (statusIcon) {
-      textDiv.html(`<span class="status-icon">${statusIcon}</span>${taskText}`);
+      // El icono es seguro porque viene de una función que solo retorna emojis fijos
+      const iconSpan = $("<span>").addClass("status-icon").html(statusIcon);
+      textDiv.append(iconSpan);
+      // El texto del usuario se escapa usando .text() para prevenir XSS
+      textDiv.append($("<span>").text(taskText));
     } else {
       textDiv.text(taskText);
     }
     contentDiv.append(textDiv);
 
     if (timestampText || elapsed) {
-      let ts = $("<div>").addClass("timestamp").text(timestampText + elapsed);
+      const ts = $("<div>").addClass("timestamp").text(timestampText + elapsed);
       contentDiv.append(ts);
     }
 
-    let actionsDiv = $("<div>").addClass("task-actions");
+    const actionsDiv = $("<div>").addClass("task-actions");
 
     // Lógica de botones según el estado
     // Sin iniciar (sin estado): mostrar botón Iniciar
-    if (task.status === "" || task.status === null) {
-      let startBtn = $("<span>")
+    if (task.status === TASK_STATUS.PENDING || task.status === null) {
+      const startBtn = $("<span>")
         .addClass("action-btn start")
-        .html("▶️")
+        .text("▶️")
         .attr("title", "Iniciar")
         .attr("data-index", i);
       actionsDiv.append(startBtn);
     }
 
     // Iniciada: mostrar botón Completar
-    if (task.status === "started") {
-      let doneBtn = $("<span>")
+    if (task.status === TASK_STATUS.STARTED) {
+      const doneBtn = $("<span>")
         .addClass("action-btn done")
-        .html("✅")
+        .text("✅")
         .attr("title", "Completar")
         .attr("data-index", i);
       actionsDiv.append(doneBtn);
@@ -297,10 +386,12 @@ function renderTasks() {
     cursor: "move",
     opacity: 0.8,
     update: function() {
-      let newTasks = [];
+      const newTasks = [];
       $(".task").each(function() {
-        let index = $(this).data("index");
-        newTasks.push(tasks[index]);
+        const index = $(this).data("index");
+        if (index >= 0 && index < tasks.length) {
+          newTasks.push(tasks[index]);
+        }
       });
       tasks = newTasks;
       saveTasks();
@@ -314,7 +405,11 @@ $(document).ready(function() {
 
   $("#new-task").on("keypress", function(e) {
     if (e.key === "Enter" && this.value.trim()) {
-      tasks.push({ text: this.value, status: "", startedAt: null });
+      tasks.push({ 
+        text: this.value.trim(), 
+        status: TASK_STATUS.PENDING, 
+        startedAt: null 
+      });
       this.value = "";
       saveTasks();
       renderTasks();
@@ -336,14 +431,14 @@ $(document).ready(function() {
 
     // Mostrar/ocultar opciones según el estado
     // Iniciar: solo si NO está iniciada
-    if (task.status === "" || task.status === null) {
+    if (task.status === TASK_STATUS.PENDING || task.status === null) {
       $(".toggle-start").removeClass("hidden");
     } else {
       $(".toggle-start").addClass("hidden");
     }
 
     // Completar: solo si está iniciada
-    if (task.status === "started") {
+    if (task.status === TASK_STATUS.STARTED) {
       $(".toggle-done").removeClass("hidden");
     } else {
       $(".toggle-done").addClass("hidden");
@@ -363,57 +458,61 @@ $(document).ready(function() {
   // Botones de acción directa
   $("#task-list").on("click", ".action-btn.start", function(e) {
     e.stopPropagation();
-    let index = $(this).data("index");
-    let task = tasks[index];
-    task.status = "started";
-    task.startedAt = new Date();
-    task.text = task.text.replace(/@done.*|@cancelled.*|@started.*|@Lasted.*/g, "").trim() + ` @started(${formatDate()})`;
-    saveTasks(); renderTasks();
+    const index = $(this).data("index");
+    if (index >= 0 && index < tasks.length) {
+      const task = tasks[index];
+      updateTaskStatus(task, TASK_STATUS.STARTED);
+      saveTasks();
+      renderTasks();
+    }
   });
 
   $("#task-list").on("click", ".action-btn.done", function(e) {
     e.stopPropagation();
-    let index = $(this).data("index");
-    let task = tasks[index];
-    task.status = "done";
-    let lasted = task.startedAt ? ` @Lasted(${getElapsed(task.startedAt)})` : "";
-    task.text = task.text.replace(/@done.*|@cancelled.*|@started.*|@Lasted.*/g, "").trim()
-      + ` @done(${formatDate()})${lasted}`;
-    saveTasks(); renderTasks();
+    const index = $(this).data("index");
+    if (index >= 0 && index < tasks.length) {
+      const task = tasks[index];
+      updateTaskStatus(task, TASK_STATUS.DONE);
+      saveTasks();
+      renderTasks();
+    }
   });
 
   // Menú contextual - opciones
   $(".toggle-start").click(() => {
-    let task = tasks[currentIndex];
-    task.status = "started";
-    task.startedAt = new Date();
-    task.text = task.text.replace(/@done.*|@cancelled.*|@started.*|@Lasted.*/g, "").trim() + ` @started(${formatDate()})`;
-    saveTasks(); renderTasks();
+    if (currentIndex !== null && currentIndex >= 0 && currentIndex < tasks.length) {
+      const task = tasks[currentIndex];
+      updateTaskStatus(task, TASK_STATUS.STARTED);
+      saveTasks();
+      renderTasks();
+    }
   });
 
   $(".toggle-done").click(() => {
-    let task = tasks[currentIndex];
-    task.status = "done";
-    let lasted = task.startedAt ? ` @Lasted(${getElapsed(task.startedAt)})` : "";
-    task.text = task.text.replace(/@done.*|@cancelled.*|@started.*|@started.*|@Lasted.*/g, "").trim()
-      + ` @done(${formatDate()})${lasted}`;
-    saveTasks(); renderTasks();
+    if (currentIndex !== null && currentIndex >= 0 && currentIndex < tasks.length) {
+      const task = tasks[currentIndex];
+      updateTaskStatus(task, TASK_STATUS.DONE);
+      saveTasks();
+      renderTasks();
+    }
   });
 
   $(".toggle-cancelled").click(() => {
-    let task = tasks[currentIndex];
-    task.status = "cancelled";
-    task.text = task.text.replace(/@done.*|@cancelled.*|@started.*|@Lasted.*/g, "").trim()
-      + ` @cancelled(${formatDate()})`;
-    saveTasks(); renderTasks();
+    if (currentIndex !== null && currentIndex >= 0 && currentIndex < tasks.length) {
+      const task = tasks[currentIndex];
+      updateTaskStatus(task, TASK_STATUS.CANCELLED);
+      saveTasks();
+      renderTasks();
+    }
   });
 
   $(".reset-status").click(() => {
-    let task = tasks[currentIndex];
-    task.status = "";
-    task.startedAt = null;
-    task.text = task.text.replace(/@done.*|@cancelled.*|@started.*|@Lasted.*/g, "").trim();
-    saveTasks(); renderTasks();
+    if (currentIndex !== null && currentIndex >= 0 && currentIndex < tasks.length) {
+      const task = tasks[currentIndex];
+      updateTaskStatus(task, TASK_STATUS.PENDING);
+      saveTasks();
+      renderTasks();
+    }
   });
 
   $(".edit-task").click(() => {
