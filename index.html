@@ -180,30 +180,126 @@ const TASK_STATUS = {
   CANCELLED: "cancelled"
 };
 
-// Regex para limpiar texto de tareas (reutilizable)
-const TASK_METADATA_REGEX = /@done.*|@cancelled.*|@started.*|@Lasted.*/g;
+// Constantes para metadatos de tareas (punto 8)
+const TASK_METADATA = {
+  DONE: "@done",
+  CANCELLED: "@cancelled",
+  STARTED: "@started",
+  LASTED: "@Lasted"
+};
 
-// Cargar tareas con manejo de errores
-let tasks = [];
-try {
-  const storedTasks = localStorage.getItem("tasks");
-  if (storedTasks !== null) {
-    const parsedTasks = JSON.parse(storedTasks);
-    if (Array.isArray(parsedTasks)) {
-      tasks = parsedTasks;
-    }
+// Regex para limpiar texto de tareas (reutilizable)
+const TASK_METADATA_REGEX = new RegExp(
+  `${TASK_METADATA.DONE}.*|${TASK_METADATA.CANCELLED}.*|${TASK_METADATA.STARTED}.*|${TASK_METADATA.LASTED}.*`,
+  "g"
+);
+
+/**
+ * Verifica si localStorage está disponible (punto 10)
+ * @returns {boolean} true si localStorage está disponible
+ */
+function isLocalStorageAvailable() {
+  try {
+    const test = "__localStorage_test__";
+    localStorage.setItem(test, test);
+    localStorage.removeItem(test);
+    return true;
+  } catch (error) {
+    return false;
   }
-} catch (error) {
-  console.error("Error al cargar tareas desde localStorage:", error);
-  tasks = [];
+}
+
+/**
+ * Valida que un objeto sea una tarea válida (punto 7)
+ * @param {*} task - Objeto a validar
+ * @returns {boolean} true si es una tarea válida
+ */
+function isValidTask(task) {
+  if (!task || typeof task !== "object") {
+    return false;
+  }
+  
+  // Verificar que tenga la propiedad text y sea string
+  if (typeof task.text !== "string") {
+    return false;
+  }
+  
+  // Verificar que el status sea válido (si existe)
+  if (task.status !== undefined && 
+      task.status !== TASK_STATUS.PENDING &&
+      task.status !== TASK_STATUS.STARTED &&
+      task.status !== TASK_STATUS.DONE &&
+      task.status !== TASK_STATUS.CANCELLED &&
+      task.status !== null) {
+    return false;
+  }
+  
+  // Verificar que startedAt sea Date o null (si existe)
+  if (task.startedAt !== undefined && 
+      task.startedAt !== null && 
+      !(task.startedAt instanceof Date) &&
+      typeof task.startedAt !== "string") {
+    return false;
+  }
+  
+  return true;
+}
+
+/**
+ * Valida y limpia el array de tareas (punto 7)
+ * @param {Array} tasksArray - Array de tareas a validar
+ * @returns {Array} Array de tareas válidas
+ */
+function validateTasks(tasksArray) {
+  if (!Array.isArray(tasksArray)) {
+    return [];
+  }
+  
+  return tasksArray.filter(task => {
+    const isValid = isValidTask(task);
+    if (!isValid) {
+      console.warn("Tarea inválida encontrada y filtrada:", task);
+    }
+    return isValid;
+  });
+}
+
+// Cargar tareas con manejo de errores y validación (puntos 7 y 10)
+let tasks = [];
+if (isLocalStorageAvailable()) {
+  try {
+    const storedTasks = localStorage.getItem("tasks");
+    if (storedTasks !== null) {
+      const parsedTasks = JSON.parse(storedTasks);
+      tasks = validateTasks(parsedTasks);
+    }
+  } catch (error) {
+    console.error("Error al cargar tareas desde localStorage:", error);
+    tasks = [];
+  }
+} else {
+  console.warn("localStorage no está disponible. Las tareas no se guardarán.");
 }
 
 function saveTasks() {
+  if (!isLocalStorageAvailable()) {
+    console.warn("localStorage no está disponible. No se pueden guardar las tareas.");
+    return false;
+  }
+  
   try {
     localStorage.setItem("tasks", JSON.stringify(tasks));
+    return true;
   } catch (error) {
     console.error("Error al guardar tareas en localStorage:", error);
-    alert("Error al guardar las tareas. Por favor, verifica que localStorage esté disponible.");
+    
+    // Manejo específico de QuotaExceededError (punto 10)
+    if (error.name === "QuotaExceededError") {
+      alert("No hay suficiente espacio para guardar las tareas. Intenta eliminar algunas tareas.");
+    } else {
+      alert("Error al guardar las tareas. Por favor, verifica que localStorage esté disponible.");
+    }
+    return false;
   }
 }
 
@@ -234,12 +330,12 @@ function updateTaskStatus(task, newStatus) {
 
   if (newStatus === TASK_STATUS.STARTED) {
     task.startedAt = new Date();
-    task.text = cleanText + ` @started(${formatDate()})`;
+    task.text = cleanText + ` ${TASK_METADATA.STARTED}(${formatDate()})`;
   } else if (newStatus === TASK_STATUS.DONE) {
-    const lasted = task.startedAt ? ` @Lasted(${getElapsed(task.startedAt)})` : "";
-    task.text = cleanText + ` @done(${formatDate()})${lasted}`;
+    const lasted = task.startedAt ? ` ${TASK_METADATA.LASTED}(${getElapsed(task.startedAt)})` : "";
+    task.text = cleanText + ` ${TASK_METADATA.DONE}(${formatDate()})${lasted}`;
   } else if (newStatus === TASK_STATUS.CANCELLED) {
-    task.text = cleanText + ` @cancelled(${formatDate()})`;
+    task.text = cleanText + ` ${TASK_METADATA.CANCELLED}(${formatDate()})`;
   } else if (newStatus === TASK_STATUS.PENDING) {
     task.startedAt = null;
     task.text = cleanText;
@@ -294,9 +390,12 @@ function editTask(index) {
   const taskText = cleanTaskText(task);
   const newText = prompt("Editar tarea:", taskText);
   if (newText !== null && newText.trim() !== "") {
-    const statusMatch = task.text.match(/@(done|cancelled|started)\(([^)]+)\)(.*)/);
+    // Usar constantes en lugar de strings hardcodeados
+    const statusPattern = `(${TASK_METADATA.DONE}|${TASK_METADATA.CANCELLED}|${TASK_METADATA.STARTED})`;
+    const statusMatch = task.text.match(new RegExp(`${statusPattern}\\(([^)]+)\\)(.*)`));
     if (statusMatch) {
-      task.text = newText.trim() + " @" + statusMatch[1] + "(" + statusMatch[2] + ")" + statusMatch[3];
+      const metadataTag = statusMatch[1];
+      task.text = newText.trim() + " " + metadataTag + "(" + statusMatch[2] + ")" + statusMatch[3];
     } else {
       task.text = newText.trim();
     }
@@ -323,7 +422,9 @@ function renderTasks() {
   tasks.forEach((task, i) => {
     const statusIcon = getStatusIcon(task.status);
     const taskText = cleanTaskText(task);
-    const timestamp = task.text.match(/@(done|cancelled|started)\(([^)]+)\)/);
+    // Usar constantes en lugar de strings hardcodeados
+    const statusPattern = `(${TASK_METADATA.DONE}|${TASK_METADATA.CANCELLED}|${TASK_METADATA.STARTED})`;
+    const timestamp = task.text.match(new RegExp(`${statusPattern}\\(([^)]+)\\)`));
     const timestampText = timestamp ? timestamp[2] : "";
     const elapsed = task.status === TASK_STATUS.DONE && task.startedAt ? ` · Duración: ${getElapsed(task.startedAt)}` : "";
 
