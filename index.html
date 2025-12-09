@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Tareitaz</title>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
+  <link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { 
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+      background: #1e1e1e; 
+      color: #e0e0e0; 
+      padding: 2rem; 
+    }
+    .task { 
+      padding: 0.75rem 1rem; 
+      cursor: move;
+      position: relative;
+      margin-bottom: 0.75rem;
+      transition: all 0.2s ease;
+      border-left: 3px solid transparent;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-left: 3px solid transparent;
+      border-radius: 0.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .task:hover { 
+      background: #2a2a2a;
+      transform: translateX(4px);
+    }
+    .task.ui-sortable-helper {
+      background: #2a2a2a;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+    }
+    .done { 
+      color: #4ade80; 
+      border-left-color: #4ade80;
+    }
+    .cancelled { 
+      color: #f87171; 
+      border-left-color: #f87171;
+    }
+    .started { 
+      color: #fbbf24; 
+      border-left-color: #fbbf24;
+    }
+    .task-content {
+      flex: 1;
+      min-width: 0;
+      cursor: text;
+    }
+    .task-text {
+      word-wrap: break-word;
+    }
+    .task-text.editing {
+      outline: 2px solid #3b82f6;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.25rem;
+      background: #2a2a2a;
+    }
+    .timestamp {
+      font-size: 0.75rem;
+      color: #6b7280;
+      margin-top: 0.25rem;
+    }
+    .task-actions {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      margin-left: 1rem;
+    }
+    .action-btn {
+      color: #6b7280;
+      cursor: pointer;
+      font-size: 1.15rem;
+      transition: all 0.2s ease;
+      padding: 0.25rem;
+      border-radius: 0.25rem;
+    }
+    .action-btn:hover { 
+      background: #374151;
+      transform: scale(1.15);
+    }
+    .action-btn.start:hover { color: #fbbf24; }
+    .action-btn.done:hover { color: #4ade80; }
+    .action-btn.cancel:hover { color: #f87171; }
+    .action-btn.delete:hover { color: #ef4444; }
+    .action-btn.edit:hover { color: #3b82f6; }
+    .action-btn.reset:hover { color: #a78bfa; }
+    .menu {
+      position: absolute;
+      display: none;
+      background: #2a2a2a;
+      border: 1px solid #404040;
+      border-radius: 0.5rem;
+      z-index: 999;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      overflow: hidden;
+      min-width: 180px;
+    }
+    .menu div {
+      padding: 0.75rem 1.25rem;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .menu div:hover { 
+      background: #374151; 
+    }
+    .menu div.hidden {
+      display: none;
+    }
+    .status-icon {
+      display: inline-block;
+      margin-right: 0.5rem;
+      font-size: 1rem;
+    }
+    #new-task {
+      transition: all 0.2s ease;
+    }
+    #new-task:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+    .sort-btn {
+      transition: all 0.2s ease;
+    }
+    .sort-btn:hover {
+      background: #3b82f6 !important;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    }
+  </style>
+</head>
+<body class="min-h-screen">
+
+<div class="max-w-4xl mx-auto">
+  <div class="flex items-center justify-between mb-8">
+    <h2 class="text-4xl font-bold text-gray-100 flex items-center gap-3">
+      <span class="text-5xl">📝</span> Lista de Tareas
+    </h2>
+    <button 
+      id="sort-btn" 
+      class="sort-btn px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-500 flex items-center gap-2"
+    >
+      <span>🔄</span> Ordenar
+    </button>
+  </div>
+
+  <div id="task-list" class="mb-6 space-y-2"></div>
+
+  <input 
+    type="text" 
+    id="new-task" 
+    placeholder="Escribe una tarea y presiona Enter" 
+    class="w-full px-5 py-4 bg-[#2a2a2a] text-gray-100 border border-gray-700 rounded-lg text-base focus:border-blue-500 transition-all"
+  >
+</div>
+
+<div class="menu" id="context-menu">
+  <div class="toggle-start">▶️ Iniciar</div>
+  <div class="toggle-done">✅ Completar</div>
+  <div class="toggle-cancelled">❌ Cancelar</div>
+  <div class="reset-status">🔄 Reset Estado</div>
+  <div class="edit-task">✏️ Editar</div>
+  <div class="delete-task">🗑️ Eliminar</div>
+</div>
+
+<script>
+let tasks = JSON.parse(localStorage.getItem("tasks")) || [];
+
+function saveTasks() {
+  localStorage.setItem("tasks", JSON.stringify(tasks));
+}
+
+function formatDate() {
+  const now = new Date();
+  return now.toLocaleDateString("es-ES") + " " + now.toLocaleTimeString("es-ES");
+}
+
+function getElapsed(start) {
+  const diff = (new Date() - new Date(start)) / 1000;
+  const minutes = Math.floor(diff / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) return `${days}d ${hours % 24}h`;
+  if (hours > 0) return `${hours}h ${minutes % 60}m`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${Math.floor(diff)}s`;
+}
+
+function getStatusIcon(status) {
+  if (status === "started") return "▶️";
+  if (status === "done") return "✅";
+  if (status === "cancelled") return "❌";
+  return "";
+}
+
+function sortTasks() {
+  const order = { "": 0, "started": 1, "done": 2, "cancelled": 3 };
+  tasks.sort((a, b) => order[a.status] - order[b.status]);
+  saveTasks();
+  renderTasks();
+}
+
+function editTask(index) {
+  let task = tasks[index];
+  let taskText = task.text.replace(/@done.*|@cancelled.*|@started.*|@Lasted.*/g, "").trim();
+  let newText = prompt("Editar tarea:", taskText);
+  if (newText !== null && newText.trim() !== "") {
+    let statusMatch = task.text.match(/@(done|cancelled|started)\(([^)]+)\)(.*)/);
+    if (statusMatch) {
+      task.text = newText.trim() + " @" + statusMatch[1] + "(" + statusMatch[2] + ")" + statusMatch[3];
+    } else {
+      task.text = newText.trim();
+    }
+    saveTasks();
+    renderTasks();
+  }
+}
+
+function deleteTask(index) {
+  let task = tasks[index];
+  let taskText = task.text.replace(/@done.*|@cancelled.*|@started.*|@Lasted.*/g, "").trim();
+  if (confirm(`¿Estás seguro de eliminar la tarea: "${taskText}"?`)) {
+    tasks.splice(index, 1);
+    saveTasks();
+    renderTasks();
+  }
+}
+
+function renderTasks() {
+  $("#task-list").empty();
+  tasks.forEach((task, i) => {
+    let statusIcon = getStatusIcon(task.status);
+    let taskText = task.text.replace(/@done.*|@cancelled.*|@started.*|@Lasted.*/g, "").trim();
+    let timestamp = task.text.match(/@(done|cancelled|started)\(([^)]+)\)/);
+    let timestampText = timestamp ? timestamp[2] : "";
+    let elapsed = task.status === "done" && task.startedAt ? ` · Duración: ${getElapsed(task.startedAt)}` : "";
+
+    let taskDiv = $("<div>").addClass("task").attr("data-index", i);
+    if (task.status === "done") taskDiv.addClass("done");
+    if (task.status === "cancelled") taskDiv.addClass("cancelled");
+    if (task.status === "started") taskDiv.addClass("started");
+
+    let contentDiv = $("<div>").addClass("task-content");
+    let textDiv = $("<div>").addClass("task-text");
+    if (statusIcon) {
+      textDiv.html(`<span class="status-icon">${statusIcon}</span>${taskText}`);
+    } else {
+      textDiv.text(taskText);
+    }
+    contentDiv.append(textDiv);
+
+    if (timestampText || elapsed) {
+      let ts = $("<div>").addClass("timestamp").text(timestampText + elapsed);
+      contentDiv.append(ts);
+    }
+
+    let actionsDiv = $("<div>").addClass("task-actions");
+
+    // Lógica de botones según el estado
+    // Sin iniciar (sin estado): mostrar botón Iniciar
+    if (task.status === "" || task.status === null) {
+      let startBtn = $("<span>")
+        .addClass("action-btn start")
+        .html("▶️")
+        .attr("title", "Iniciar")
+        .attr("data-index", i);
+      actionsDiv.append(startBtn);
+    }
+
+    // Iniciada: mostrar botón Completar
+    if (task.status === "started") {
+      let doneBtn = $("<span>")
+        .addClass("action-btn done")
+        .html("✅")
+        .attr("title", "Completar")
+        .attr("data-index", i);
+      actionsDiv.append(doneBtn);
+    }
+
+    // Completada o Cancelada: no mostrar botones
+
+    taskDiv.append(contentDiv);
+    taskDiv.append(actionsDiv);
+    $("#task-list").append(taskDiv);
+  });
+
+  $("#task-list").sortable({
+    cursor: "move",
+    opacity: 0.8,
+    update: function() {
+      let newTasks = [];
+      $(".task").each(function() {
+        let index = $(this).data("index");
+        newTasks.push(tasks[index]);
+      });
+      tasks = newTasks;
+      saveTasks();
+      renderTasks();
+    }
+  });
+}
+
+$(document).ready(function() {
+  renderTasks();
+
+  $("#new-task").on("keypress", function(e) {
+    if (e.key === "Enter" && this.value.trim()) {
+      tasks.push({ text: this.value, status: "", startedAt: null });
+      this.value = "";
+      saveTasks();
+      renderTasks();
+    }
+  });
+
+  // Botón ordenar
+  $("#sort-btn").click(function() {
+    sortTasks();
+  });
+
+  let currentIndex = null;
+
+  // Click derecho - menú contextual
+  $("#task-list").on("contextmenu", ".task", function(e) {
+    e.preventDefault();
+    currentIndex = $(this).data("index");
+    let task = tasks[currentIndex];
+
+    // Mostrar/ocultar opciones según el estado
+    // Iniciar: solo si NO está iniciada
+    if (task.status === "" || task.status === null) {
+      $(".toggle-start").removeClass("hidden");
+    } else {
+      $(".toggle-start").addClass("hidden");
+    }
+
+    // Completar: solo si está iniciada
+    if (task.status === "started") {
+      $(".toggle-done").removeClass("hidden");
+    } else {
+      $(".toggle-done").addClass("hidden");
+    }
+
+    // Los demás siempre visibles
+    $(".toggle-cancelled").removeClass("hidden");
+    $(".reset-status").removeClass("hidden");
+    $(".edit-task").removeClass("hidden");
+    $(".delete-task").removeClass("hidden");
+
+    $("#context-menu").css({ top: e.pageY, left: e.pageX }).show();
+  });
+
+  $(document).click(() => $("#context-menu").hide());
+
+  // Botones de acción directa
+  $("#task-list").on("click", ".action-btn.start", function(e) {
+    e.stopPropagation();
+    let index = $(this).data("index");
+    let task = tasks[index];
+    task.status = "started";
+    task.startedAt = new Date();
+    task.text = task.text.replace(/@done.*|@cancelled.*|@started.*|@Lasted.*/g, "").trim() + ` @started(${formatDate()})`;
+    saveTasks(); renderTasks();
+  });
+
+  $("#task-list").on("click", ".action-btn.done", function(e) {
+    e.stopPropagation();
+    let index = $(this).data("index");
+    let task = tasks[index];
+    task.status = "done";
+    let lasted = task.startedAt ? ` @Lasted(${getElapsed(task.startedAt)})` : "";
+    task.text = task.text.replace(/@done.*|@cancelled.*|@started.*|@Lasted.*/g, "").trim()
+      + ` @done(${formatDate()})${lasted}`;
+    saveTasks(); renderTasks();
+  });
+
+  // Menú contextual - opciones
+  $(".toggle-start").click(() => {
+    let task = tasks[currentIndex];
+    task.status = "started";
+    task.startedAt = new Date();
+    task.text = task.text.replace(/@done.*|@cancelled.*|@started.*|@Lasted.*/g, "").trim() + ` @started(${formatDate()})`;
+    saveTasks(); renderTasks();
+  });
+
+  $(".toggle-done").click(() => {
+    let task = tasks[currentIndex];
+    task.status = "done";
+    let lasted = task.startedAt ? ` @Lasted(${getElapsed(task.startedAt)})` : "";
+    task.text = task.text.replace(/@done.*|@cancelled.*|@started.*|@started.*|@Lasted.*/g, "").trim()
+      + ` @done(${formatDate()})${lasted}`;
+    saveTasks(); renderTasks();
+  });
+
+  $(".toggle-cancelled").click(() => {
+    let task = tasks[currentIndex];
+    task.status = "cancelled";
+    task.text = task.text.replace(/@done.*|@cancelled.*|@started.*|@Lasted.*/g, "").trim()
+      + ` @cancelled(${formatDate()})`;
+    saveTasks(); renderTasks();
+  });
+
+  $(".reset-status").click(() => {
+    let task = tasks[currentIndex];
+    task.status = "";
+    task.startedAt = null;
+    task.text = task.text.replace(/@done.*|@cancelled.*|@started.*|@Lasted.*/g, "").trim();
+    saveTasks(); renderTasks();
+  });
+
+  $(".edit-task").click(() => {
+    editTask(currentIndex);
+  });
+
+  $(".delete-task").click(() => {
+    deleteTask(currentIndex);
+  });
+});
+</script>
+
+</body>
+</html>
